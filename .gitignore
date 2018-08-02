@@ -22,3 +22,4 @@ nbbuild/
 dist/
 nbdist/
 .nb-gradle/
+messenger4j-spring-boot-quickstart-template\.log
