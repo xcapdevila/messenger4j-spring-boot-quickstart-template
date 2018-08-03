@@ -5,7 +5,7 @@
 
 	<groupId>com.github.messenger4j</groupId>
 	<artifactId>messenger4j-spring-boot-quickstart-template</artifactId>
-	<version>2.0.0-handover-SNAPSHOT</version>
+	<version>2.0.1-SNAPSHOT</version>
 	<packaging>jar</packaging>
 
 	<name>${project.groupId}:${project.artifactId}</name>
