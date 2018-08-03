@@ -53,7 +53,7 @@
 		<dependency>
 			<groupId>com.github.messenger4j</groupId>
 			<artifactId>messenger4j</artifactId>
-			<version>1.0.1-XC-handover-SNAPSHOT</version>
+			<version>1.0.1-XC-SNAPSHOT</version>
 		</dependency>
 	</dependencies>
 

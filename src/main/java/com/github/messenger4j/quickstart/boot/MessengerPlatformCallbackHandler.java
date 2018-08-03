@@ -5,10 +5,7 @@ import com.github.messenger4j.common.WebviewHeightRatio;
 import com.github.messenger4j.exception.MessengerApiException;
 import com.github.messenger4j.exception.MessengerIOException;
 import com.github.messenger4j.exception.MessengerVerificationException;
-import com.github.messenger4j.handover.HandoverPassThradControlPayload;
-import com.github.messenger4j.handover.HandoverRequestPayload;
-import com.github.messenger4j.handover.HandoverResponse;
-import com.github.messenger4j.handover.SecondaryReceiver;
+import com.github.messenger4j.handover.*;
 import com.github.messenger4j.send.MessagePayload;
 import com.github.messenger4j.send.MessagingType;
 import com.github.messenger4j.send.NotificationType;
@@ -43,6 +40,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.MalformedURLException;
@@ -57,6 +55,7 @@ import static com.github.messenger4j.Messenger.*;
 import static com.github.messenger4j.send.message.richmedia.RichMediaAsset.Type.*;
 import static java.util.Optional.empty;
 import static java.util.Optional.of;
+import static org.springframework.http.ResponseEntity.ok;
 
 /**
  * This is the main class for inbound and outbound communication with the Facebook Messenger Platform. The callback
@@ -90,7 +89,7 @@ public class MessengerPlatformCallbackHandler {
 		logger.debug("Received Webhook verification request - mode: {} | verifyToken: {} | challenge: {}", mode, verifyToken, challenge);
 		try {
 			this.messenger.verifyWebhook(mode, verifyToken);
-			return ResponseEntity.ok(challenge);
+			return ok(challenge);
 		} catch (MessengerVerificationException e) {
 			logger.warn("Webhook verification failed: {}", e.getMessage());
 			return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
@@ -103,6 +102,20 @@ public class MessengerPlatformCallbackHandler {
 	@RequestMapping(method = RequestMethod.POST)
 	public ResponseEntity<Void> handleCallback(@RequestBody final String payload, @RequestHeader(SIGNATURE_HEADER_NAME) final String signature) {
 		logger.debug("Received Messenger Platform callback - payload: {} | signature: {}", payload, signature);
+		asyncHandleCallback(payload, signature);
+		return ResponseEntity.ok().build();
+	}
+
+	/**
+	 * It is highly recommended to handle the callback asynchronously and send a 200 OK response to Facebook as ACK from reception
+	 * //FIXME add links to docu
+	 *
+	 * @param payload
+	 * @param signature
+	 * @return
+	 */
+	@Async
+	public void asyncHandleCallback(@RequestBody String payload, @RequestHeader(SIGNATURE_HEADER_NAME) String signature) {
 		try {
 			this.messenger.onReceiveEvents(payload, of(signature), event -> {
 				if (event.isTextMessageEvent()) {
@@ -134,10 +147,8 @@ public class MessengerPlatformCallbackHandler {
 				}
 			});
 			logger.debug("Processed callback payload successfully");
-			return ResponseEntity.status(HttpStatus.OK).build();
 		} catch (MessengerVerificationException e) {
 			logger.warn("Processing of callback payload failed: {}", e.getMessage());
-			return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
 		}
 	}
 
@@ -216,8 +227,12 @@ public class MessengerPlatformCallbackHandler {
 							sendAccountLinking(senderId);
 							break;
 
+						case "thread owner":
+							threadOwner(event.senderId(), event.senderId());
+							break;
+
 						case "pass control to secondary":
-							passThreadControl(event);
+							passThreadControl(event.senderId(), event.senderId());
 							break;
 
 						default:
@@ -227,17 +242,15 @@ public class MessengerPlatformCallbackHandler {
 				case STANDBY:
 					switch (messageText.toLowerCase()) {
 						case "pass control to primary":
-							takeThreadControl(event);
+							takeThreadControl(event.senderId(), event.senderId());
 							break;
 
 						case "request control to secondary":
-							requestThreadControl(event);
+							requestThreadControl(event.senderId(), event.senderId());
 							break;
-
 						default:
-							sendTextMessage(senderId, messageText);
+							logger.info(getEventTypeBasedMessage(baseEventType, messageText));
 					}
-					sendTextMessage(senderId, getEventTypeBasedMessage(baseEventType, messageText));
 					break;
 				default:
 					logger.warn("Unsupported baseEventType {}", baseEventType);
@@ -247,37 +260,47 @@ public class MessengerPlatformCallbackHandler {
 		}
 	}
 
-	private void passThreadControl(TextMessageEvent event) throws MessengerApiException, MessengerIOException {
-		SecondaryReceiver secondaryReceiver = messenger.getSecondaryReceivers().data().orElse(Collections.emptyList()).stream()
+	private void threadOwner(String facebookUserId, String recipientId) throws MessengerApiException, MessengerIOException {
+		ThreadOwnerResponse threadOwnerResponse = messenger.getThreadOwner(facebookUserId);
+		threadOwnerResponse.threadOwner().ifPresent(threadOwner -> {
+			final String text = String
+					.format("FacebookId %s Thread's Owner Id is %s", facebookUserId, threadOwner.appId().orElse("null [LIB Exception - AppId cannot be null]"));
+			logger.info(text);
+			sendTextMessage(recipientId, text);
+		});
+	}
+
+	private void passThreadControl(String facebookUserId, String recipientId) throws MessengerApiException, MessengerIOException {
+		SecondaryReceiver secondaryReceiver = messenger.getSecondaryReceivers().secondaryReceivers().orElse(Collections.emptyList()).stream()
 				.filter(sr -> sr.id().isPresent()).findFirst().orElse(null);
 		if (secondaryReceiver != null) {
-			HandoverResponse handoverResponse = messenger
-					.passThreadControl(HandoverPassThradControlPayload.create(event.recipientId(), secondaryReceiver.id().get(), empty()));
+			final String targetAppId = secondaryReceiver.id().get();
+			HandoverResponse handoverResponse = messenger.passThreadControl(HandoverPassThreadControlPayload.create(facebookUserId, targetAppId, empty()));
 			handoverResponse.success().ifPresent(success -> {
-				final String text = String.format("Request thread control for %s response success %s", event.recipientId(), String.valueOf(success));
+				final String text = String.format("Pass thread control for %s to %s response success %s", facebookUserId, targetAppId, String.valueOf(success));
 				logger.info(text);
-				sendTextMessage(event.senderId(), text);
+				sendTextMessage(recipientId, text);
 			});
 		} else {
 			logger.warn("No secondary receivers found!!");
 		}
 	}
 
-	private void requestThreadControl(TextMessageEvent event) throws MessengerApiException, MessengerIOException {
-		HandoverResponse handoverResponse = messenger.requestThreadControl(HandoverRequestPayload.create(event.recipientId(), empty()));
+	private void requestThreadControl(String facebookUserId, String recipientId) throws MessengerApiException, MessengerIOException {
+		HandoverResponse handoverResponse = messenger.requestThreadControl(HandoverRequestPayload.create(facebookUserId, empty()));
 		handoverResponse.success().ifPresent(success -> {
-			final String text = String.format("Request thread control for %s response success %s", event.recipientId(), String.valueOf(success));
+			final String text = String.format("Request thread control for %s response success %s", facebookUserId, String.valueOf(success));
 			logger.info(text);
-			sendTextMessage(event.senderId(), text);
+			sendTextMessage(recipientId, text);
 		});
 	}
 
-	private void takeThreadControl(TextMessageEvent event) throws MessengerApiException, MessengerIOException {
-		HandoverResponse handoverResponse = messenger.takeThreadControl(HandoverRequestPayload.create(event.recipientId(), empty()));
+	private void takeThreadControl(String facebookUserId, String recipientId) throws MessengerApiException, MessengerIOException {
+		HandoverResponse handoverResponse = messenger.takeThreadControl(HandoverRequestPayload.create(facebookUserId, empty()));
 		handoverResponse.success().ifPresent(success -> {
-			final String text = String.format("Take thread control for %s response success %s", event.recipientId(), String.valueOf(success));
+			final String text = String.format("Take thread control for %s response success %s", facebookUserId, String.valueOf(success));
 			logger.info(text);
-			sendTextMessage(event.senderId(), text);
+			sendTextMessage(recipientId, text);
 		});
 	}
 
@@ -592,9 +615,8 @@ public class MessengerPlatformCallbackHandler {
 		logger.debug("timestamp: {}", timestamp);
 
 		event.getPassThreadControl().ifPresent(passThreadControl -> {
-			final String text = String.format("Now this app has the control. Received -> %s", passThreadControl);
-			logger.info(text);
-			sendTextMessage(senderId, text);
+			logger.info(String.format("Now this app has the control. Received -> %s", passThreadControl));
+			sendTextMessage(event.senderId(), "Hi I'm the App again");
 		});
 	}
 
@@ -614,9 +636,7 @@ public class MessengerPlatformCallbackHandler {
 			 * is up to you to pass the control to the secondary receiver
 			 * messenger.passThreadControl();
 			 * */
-			final String text = String.format("Secondary Receiver requested to this app has the control. Received -> %s", requestThreadControl);
-			logger.info(text);
-			sendTextMessage(senderId, text);
+			logger.info(String.format("Secondary Receiver requested to this app has the control. Received -> %s", requestThreadControl));
 		});
 
 	}
@@ -637,9 +657,7 @@ public class MessengerPlatformCallbackHandler {
 			 * is up to you to request again the control to the primary receiver
 			 * messenger.requestThreadControl();
 			 * */
-			final String text = String.format("Primary Receiver has taken away the app control. Received -> %s", takeThreadControl);
-			logger.info(text);
-			sendTextMessage(senderId, text);
+			logger.info(String.format("Primary Receiver has taken away the app control. Received -> %s", takeThreadControl));
 		});
 
 	}
@@ -660,9 +678,9 @@ public class MessengerPlatformCallbackHandler {
 
 	private String getEventTypeBasedMessage(final BaseEventType baseEventType, String text) {
 		if (baseEventType == BaseEventType.STANDBY) {
-			text = String.format("STANDBY Event handled by an other app ->%n %s", text);
+			text = String.format("STANDBY Event handled by an other app -> %s", text);
 		} else if (baseEventType == BaseEventType.HANDOVER) {
-			text = String.format("HANDOVER Event ->%n %s", text);
+			text = String.format("HANDOVER Event -> %s", text);
 		}
 		return text;
 	}
