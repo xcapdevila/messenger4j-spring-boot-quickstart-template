@@ -142,6 +142,8 @@ public class MessengerPlatformCallbackHandler {
 					handleRequestThreadControlEvent(event.asRequestThreadControlEvent());
 				} else if (event.isTakeThreadControlEvent()) {
 					handleTakeThreadControlEvent(event.asTakeThreadControlEvent());
+				} else if (event.isAppRolesEvent()) {
+					handleAppRolesEvent(event.asAppRolesEvent());
 				} else {
 					handleFallbackEvent(event);
 				}
@@ -658,6 +660,24 @@ public class MessengerPlatformCallbackHandler {
 			 * messenger.requestThreadControl();
 			 * */
 			logger.info(String.format("Primary Receiver has taken away the app control. Received -> %s", takeThreadControl));
+		});
+
+	}
+
+	private void handleAppRolesEvent(AppRolesEvent event) {
+		logger.debug("Handling AppRolesEvent");
+		final String recipientId = event.recipientId();
+		logger.debug("recipientId: {}", recipientId);
+		final BaseEventType baseEventType = event.baseEventType();
+		logger.debug("baseEventType: {}", baseEventType);
+		final Instant timestamp = event.timestamp();
+		logger.debug("timestamp: {}", timestamp);
+
+		event.getAppRoles().ifPresent(appRoles -> {
+			/**
+			 * Triggered when App Roles are changed from Page configuration
+			 * */
+			logger.info(String.format("App Roles updated. Received -> %s", appRoles));
 		});
 
 	}
