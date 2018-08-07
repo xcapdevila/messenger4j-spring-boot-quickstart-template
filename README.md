@@ -87,7 +87,7 @@ java -jar target/*.jar
 22. Section 'Webhooks': Click the 'Setup Webhooks' button
 23. enter the Callback URL: `https://<heroku app name>.herokuapp.com/callback`, e.g. `https://messenger4j-heroku-app.herokuapp.com/callback`
 24. enter the generated Verify Token, e.g. `retgdkfjsjklsklj34qdfs`
-25. select the following Subscription Fields: `messages`, `messaging_postbacks`, `messaging_optins`, `message_deliveries`, `message_reads`, `messaging_account_linking`, `message_echoes`
+25. select the following Subscription Fields: `messages`, `messaging_postbacks`, `messaging_optins`, `message_deliveries`, `message_reads`, `messaging_account_linking`, `message_echoes`, `standby`, `messaging_handovers` 
 26. click the 'Verify and Save' button
 27. Section 'Webhooks': Select your created FB Page to subscribe your webhook to the page events, e.g. `Messenger4j Demo`
 28. click the 'Subscribe' button
