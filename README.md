@@ -1,5 +1,7 @@
 # messenger4j-spring-boot-quickstart-template
 
+**[Since v.2.1.0] Added support for the Handover Protocol by using messenger4j 1.1.0-XC version.**
+
 This project is an application skeleton for a Facebook Messenger Chatbot using Java, Spring Boot, and messenger4j.
 You can use it to quickly bootstrap your chatbot projects and write your first Messenger Chatbot within minutes.
 
